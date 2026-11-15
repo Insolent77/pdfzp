@@ -31,7 +31,12 @@ async function api(url: string, method = 'GET', body?: unknown) {
       ...(method !== 'GET' ? { 'X-CSRF-Token': csrf } : {}),
     },
     body: body ? (form ? body : JSON.stringify(body)) : undefined,
+    signal: AbortSignal.timeout(15000),
   });
+  if (!response.headers.get('content-type')?.includes('application/json'))
+    throw Error(
+      'Сервер приложения не подключён. На GitHub Pages опубликована клиентская часть; для входа, расчётов и PDF нужен сервер приложения.',
+    );
   const result = await response.json();
   if (result.csrf) csrf = result.csrf;
   if (!response.ok) throw Error([result.error, ...(result.errors ?? [])].join('\n'));
@@ -110,6 +115,7 @@ function Modal({
   );
 }
 function App() {
+  const [connectionError, setConnectionError] = useState('');
   const [user, setUser] = useState<any>(undefined),
     [page, setPage] = useState(new URLSearchParams(location.search).get('page') ?? 'generator'),
     [teachers, setTeachers] = useState<any[]>([]),
@@ -176,10 +182,19 @@ function App() {
     setVersions(rows);
     setCalc(rows[0] ?? null);
   }
+  async function connect() {
+    setConnectionError('');
+    setUser(undefined);
+    try {
+      const s = await api('/auth/session');
+      setUser(s.user);
+    } catch (e) {
+      setUser(null);
+      setConnectionError((e as Error).message || 'Не удалось связаться с сервером приложения.');
+    }
+  }
   useEffect(() => {
-    api('/auth/session')
-      .then((s) => setUser(s.user))
-      .catch((e) => setError(e.message));
+    connect();
   }, []);
   useEffect(() => {
     if (user) run(loadTeachers);
@@ -259,6 +274,37 @@ function App() {
       : []),
   ];
   if (user === undefined) return <div className="loading">Загрузка…</div>;
+  if (connectionError)
+    return (
+      <div className="login">
+        <section className="login-card">
+          <div className="logo">
+            <GraduationCap />
+          </div>
+          <h1>Мой Ломоносов</h1>
+          <p>Генератор актов преподавателей</p>
+          <h2>Сервер приложения недоступен</h2>
+          <p role="alert">{connectionError}</p>
+          <button className="primary" onClick={connect}>
+            <RefreshCw size={16} /> Проверить подключение
+          </button>
+          {import.meta.env.VITE_SERVER_URL && (
+            <a className="button" href={import.meta.env.VITE_SERVER_URL}>
+              Открыть приложение на сервере <ArrowRight size={16} />
+            </a>
+          )}
+          <p>
+            <a
+              href="https://github.com/Insolent77/pdfzp#запуск-на-сервере"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Инструкция подключения сервера <ExternalLink size={13} />
+            </a>
+          </p>
+        </section>
+      </div>
+    );
   if (!user)
     return (
       <div className="login">

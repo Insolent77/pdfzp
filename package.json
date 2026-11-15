@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch server/index.ts",
     "build": "tsc --noEmit && vite build",
+    "build:pages": "tsc --noEmit && vite build --base=/pdfzp/",
     "start": "tsx server/index.ts",
     "test": "tsx --test tests/*.test.ts",
     "db:generate": "prisma generate",
