@@ -21,27 +21,10 @@ import {
   X,
 } from 'lucide-react';
 import './style.css';
-let csrf = '';
-async function api(url: string, method = 'GET', body?: unknown) {
-  const form = body instanceof FormData;
-  const response = await fetch('/api' + url, {
-    method,
-    headers: {
-      ...(body && !form ? { 'Content-Type': 'application/json' } : {}),
-      ...(method !== 'GET' ? { 'X-CSRF-Token': csrf } : {}),
-    },
-    body: body ? (form ? body : JSON.stringify(body)) : undefined,
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!response.headers.get('content-type')?.includes('application/json'))
-    throw Error(
-      'Сервер приложения не подключён. На GitHub Pages опубликована клиентская часть; для входа, расчётов и PDF нужен сервер приложения.',
-    );
-  const result = await response.json();
-  if (result.csrf) csrf = result.csrf;
-  if (!response.ok) throw Error([result.error, ...(result.errors ?? [])].join('\n'));
-  return result;
-}
+import { browserAction as api, downloadDocument, downloadTemplate } from './browser/service';
+import { GoogleSettings } from './browser/GoogleSettings';
+import { exportBackup, importBackup } from './browser/storage';
+import { connected as isGoogleConnected } from './browser/google';
 const rub = (v: unknown) =>
   Number(v ?? 0).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
   ' ₽';
@@ -126,7 +109,6 @@ function App() {
     [versions, setVersions] = useState<any[]>([]),
     [documents, setDocuments] = useState<any[]>([]),
     [settings, setSettings] = useState<any>(null),
-    [users, setUsers] = useState<any[]>([]),
     [audit, setAudit] = useState<any[]>([]),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
@@ -177,7 +159,13 @@ function App() {
       setVersions([]);
       return;
     }
-    const rows = await api(`/teachers/${teacherId}/calculations?month=${month}&year=${year}`);
+    let rows = await api(`/teachers/${teacherId}/calculations?month=${month}&year=${year}`);
+    if (
+      !rows.length &&
+      isGoogleConnected() &&
+      teachers.find((t) => t.id === teacherId)?.spreadsheetId
+    )
+      rows = [await api(`/teachers/${teacherId}/calculate`, 'POST', { month, year })];
     if (current !== sequence.current) return;
     setVersions(rows);
     setCalc(rows[0] ?? null);
@@ -190,7 +178,9 @@ function App() {
       setUser(s.user);
     } catch (e) {
       setUser(null);
-      setConnectionError((e as Error).message || 'Не удалось связаться с сервером приложения.');
+      setConnectionError(
+        (e as Error).message || 'Проверьте доступ браузера к локальному хранилищу.',
+      );
     }
   }
   useEffect(() => {
@@ -208,7 +198,7 @@ function App() {
     if (page === 'settings' && admin)
       run(async () => {
         setSettings(await api('/settings'));
-        setUsers(await api('/users'));
+
         setAudit(await api('/audit'));
       });
   }, [page, user?.id]);
@@ -225,7 +215,11 @@ function App() {
       const c = await api(`/teachers/${teacherId}/calculate`, 'POST', { month, year });
       setCalc(c);
       setVersions((v) => [c, ...v]);
-      setNotice('Сервер получил актуальные данные. Сохранена версия ' + c.version);
+      setNotice(
+        (c.source.kind === 'FILE' ? 'Загруженный файл пересчитан.' : 'Данные из Google получены.') +
+          ' Сохранена версия ' +
+          c.version,
+      );
     });
   }
   async function saveTeacher(e: FormEvent<HTMLFormElement>) {
@@ -273,77 +267,18 @@ function App() {
       ? [['settings', 'Настройки', Settings] as [string, string, typeof LayoutDashboard]]
       : []),
   ];
-  if (user === undefined) return <div className="loading">Загрузка…</div>;
+  if (user === undefined) return <div className="loading">Открываю рабочую область…</div>;
   if (connectionError)
     return (
       <div className="login">
         <section className="login-card">
-          <div className="logo">
-            <GraduationCap />
-          </div>
           <h1>Мой Ломоносов</h1>
-          <p>Генератор актов преподавателей</p>
-          <h2>Сервер приложения недоступен</h2>
           <p role="alert">{connectionError}</p>
-          <button className="primary" onClick={connect}>
-            <RefreshCw size={16} /> Проверить подключение
-          </button>
-          {import.meta.env.VITE_SERVER_URL && (
-            <a className="button" href={import.meta.env.VITE_SERVER_URL}>
-              Открыть приложение на сервере <ArrowRight size={16} />
-            </a>
-          )}
-          <p>
-            <a
-              href="https://github.com/Insolent77/pdfzp#запуск-на-сервере"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Инструкция подключения сервера <ExternalLink size={13} />
-            </a>
-          </p>
+          <button onClick={connect}>Открыть повторно</button>
         </section>
       </div>
     );
-  if (!user)
-    return (
-      <div className="login">
-        <form
-          className="login-card"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            run(async () => {
-              const s = await api('/auth/login', 'POST', Object.fromEntries(f));
-              setUser(s.user);
-            });
-          }}
-        >
-          <div className="logo">
-            <GraduationCap />
-          </div>
-          <h1>Мой Ломоносов</h1>
-          <p>Генератор актов преподавателей</p>
-          <Field label="Электронная почта">
-            <input name="email" type="email" required autoComplete="username" />
-          </Field>
-          <Field label="Пароль">
-            <input name="password" type="password" required autoComplete="current-password" />
-          </Field>
-          {error && (
-            <div className="error" role="alert">
-              {error}
-            </div>
-          )}
-          <button className="primary" disabled={busy}>
-            Войти <ArrowRight size={16} />
-          </button>
-          <small>
-            <ShieldCheck size={14} /> Доступ только для сотрудников
-          </small>
-        </form>
-      </div>
-    );
+  if (!user) return <div className="loading">Открываю рабочую область…</div>;
   return (
     <div className="app">
       <aside>
@@ -373,18 +308,19 @@ function App() {
           <div className="private">
             <ShieldCheck size={16} />
             <span>
-              Закрытое пространство<small>Справочник и документы</small>
+              GitHub Pages<small>Справочник и документы</small>
             </span>
           </div>
           <div className="profile">
             <span className="avatar">{user.email[0].toUpperCase()}</span>
             <span>
-              {admin ? 'Администратор' : 'Сотрудник'}
+              Рабочая область
               <small>{user.email}</small>
             </span>
             <button
               className="icon"
-              aria-label="Выйти"
+              aria-label="Отключить Google и обновить страницу"
+              title="Отключить Google"
               onClick={() =>
                 run(async () => {
                   await api('/auth/logout', 'POST');
@@ -404,7 +340,7 @@ function App() {
             {nav.find((n) => n[0] === page)?.[1]}
           </span>
           <span className="secure">
-            <span /> Вы вошли в систему
+            <span /> Работает в браузере
           </span>
         </div>
         <div className="content">
@@ -419,7 +355,7 @@ function App() {
                   : page === 'history'
                     ? 'Все версии документов и расчётные данные, на основании которых они созданы.'
                     : page === 'settings'
-                      ? 'Интеграции, шаблоны, пользователи и журнал действий.'
+                      ? 'Google, шаблоны, хранение документов и журнал действий.'
                       : 'Загрузите данные и проверьте каждое начисление.'}
             </p>
           </div>
@@ -516,7 +452,7 @@ function App() {
                             const c = await api(`/teachers/${teacherId}/import`, 'POST', form);
                             setCalc(c);
                             setVersions((v) => [c, ...v]);
-                            setNotice('Файл обработан сервером');
+                            setNotice('Файл обработан в браузере');
                           });
                         e.target.value = '';
                       }}
@@ -940,11 +876,27 @@ function App() {
                       <td>{timestamp(d.createdAt)}</td>
                       <td>
                         {d.pdfPath && (
-                          <a href={`/api/documents/${d.id}/pdf`}>
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              run(() => downloadDocument(d.id, 'pdf'));
+                            }}
+                          >
                             Скачать PDF <FileDown size={13} />
                           </a>
                         )}
-                        {d.docxPath && <a href={`/api/documents/${d.id}/docx`}>Исходный DOCX</a>}
+                        {d.docxPath && (
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              run(() => downloadDocument(d.id, 'docx'));
+                            }}
+                          >
+                            Исходный DOCX
+                          </a>
+                        )}
                         {d.driveId && (
                           <a
                             href={`https://drive.google.com/file/d/${d.driveId}/view`}
@@ -999,50 +951,16 @@ function App() {
           {page === 'settings' && admin && settings && (
             <div className="settings-grid">
               <section className="panel setting">
-                <h3>Google Workspace</h3>
-                <p>Серверный OAuth. Токены не передаются браузеру.</p>
-                {settings.accounts.map((a: any) => (
-                  <div className="account" key={a.id}>
-                    <span>
-                      {a.email}
-                      <small>{a.active ? 'Подключён' : 'Отключён'}</small>
-                    </span>
-                    {a.active && (
-                      <button
-                        onClick={() =>
-                          run(async () => {
-                            await api('/google/accounts/' + a.id, 'DELETE');
-                            setSettings(await api('/settings'));
-                          })
-                        }
-                      >
-                        Отключить
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <a className="button primary" href="/api/google/connect">
-                  Подключить Google-аккаунт <ExternalLink size={15} />
-                </a>
-                {!settings.googleConfigured && (
-                  <p className="warn-text">
-                    Администратору сервера нужно задать GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET.
-                  </p>
-                )}
-                <button
-                  disabled={busy}
-                  onClick={() =>
+                <GoogleSettings
+                  busy={busy}
+                  onAction={(action) =>
                     run(async () => {
-                      const r = await api('/directory/sync', 'POST');
+                      await action();
                       await loadTeachers();
-                      setNotice(
-                        `Импорт: ${r.created} новых, ${r.updated} обновлённых, ${r.conflicts.length} конфликтов. Детали — в журнале действий.`,
-                      );
+                      setSettings(await api('/settings'));
                     })
                   }
-                >
-                  <RefreshCw size={15} /> Импортировать справочник
-                </button>
+                />
               </section>
               <section className="panel setting">
                 <h3>Заказчик</h3>
@@ -1119,7 +1037,15 @@ function App() {
                     </form>
                     {settings.settings.template?.[kind === 'IP' ? 'ipPath' : 'path'] && (
                       <>
-                        <a href={`/api/templates/${kind}/download`}>Скачать для проверки</a>
+                        <a
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            run(() => downloadTemplate(kind));
+                          }}
+                        >
+                          Скачать для проверки
+                        </a>
                         <button
                           onClick={() => {
                             setEditor({
@@ -1146,8 +1072,8 @@ function App() {
               <section className="panel setting">
                 <h3>Хранение и резервные копии</h3>
                 <p>
-                  Основные документы хранятся в закрытом серверном томе. Резервирование PostgreSQL и
-                  файлов выполняет скрипт сервера.
+                  Основные документы и история хранятся в этом браузере. Сделайте резервную копию
+                  для переноса на другое устройство.
                 </p>
                 <form
                   onSubmit={(e) => {
@@ -1182,61 +1108,44 @@ function App() {
                   <button disabled={busy}>Сохранить</button>
                 </form>
                 <p className="help">
-                  Инструкции по размещению в РФ, резервированию и восстановлению находятся в README
+                  Сохраняйте резервные копии перед очисткой браузера. Инструкция находится в README
                   репозитория.
                 </p>
+                <button disabled={busy} onClick={() => run(exportBackup)}>
+                  <FileDown size={15} /> Скачать резервную копию
+                </button>
+                <label className="button">
+                  <Upload size={15} /> Восстановить данные этого браузера из копии
+                  <input
+                    hidden
+                    type="file"
+                    accept=".json"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file)
+                        run(async () => {
+                          await importBackup(file);
+                          await loadTeachers();
+                          setSettings(await api('/settings'));
+                          setNotice('Данные этого браузера восстановлены из выбранной копии');
+                        });
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
               </section>
               <section className="panel setting wide">
-                <header>
-                  <h3>Пользователи и права</h3>
-                  <button onClick={() => setDialog('user')}>
-                    <Plus size={15} /> Пользователь
-                  </button>
-                </header>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Почта</th>
-                      <th>Роль</th>
-                      <th>Доступ</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((u) => (
-                      <tr key={u.id}>
-                        <td>{u.email}</td>
-                        <td>
-                          {u.role === 'ADMIN'
-                            ? 'Администратор'
-                            : 'Сотрудник (просмотр и скачивание)'}
-                        </td>
-                        <td>{u.active ? 'Активен' : 'Отключён'}</td>
-                        <td>
-                          {u.id !== user.id && (
-                            <button
-                              onClick={() =>
-                                run(async () => {
-                                  await api('/users/' + u.id, 'PATCH', {
-                                    active: !u.active,
-                                    role: u.role,
-                                  });
-                                  setUsers(await api('/users'));
-                                })
-                              }
-                            >
-                              {u.active ? 'Отключить' : 'Включить'}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </section>
+                <h3>Рабочая область этого браузера</h3>
+                <p>
+                  Приложение работает на GitHub Pages. Карточки, расчёты, шаблоны и история
+                  сохраняются на этом устройстве в браузере. Файлы Google доступны только после
+                  входа в аккаунт, которому они открыты. Для переноса данных на другой компьютер
+                  экспортируйте резервную копию.
+                </p>
+              </section>{' '}
               <section className="panel setting wide">
                 <header>
-                  <h3>Журнал действий администратора</h3>
+                  <h3>Журнал действий в этом браузере</h3>
                   <button onClick={() => run(async () => setAudit(await api('/audit')))}>
                     <RefreshCw size={14} /> Обновить
                   </button>
@@ -1257,7 +1166,7 @@ function App() {
           <footer>
             <span>Мой Ломоносов · Генератор актов преподавателей</span>
             <span>
-              <ShieldCheck size={13} /> Все обращения к источникам выполняет сервер
+              <ShieldCheck size={13} /> Расчёты и PDF выполняются в браузере
             </span>
           </footer>
         </div>
@@ -1519,43 +1428,6 @@ function App() {
             </Field>
             <button className="primary" disabled={busy}>
               Сохранить
-            </button>
-          </form>
-        </Modal>
-      )}
-      {dialog === 'user' && (
-        <Modal title="Добавить пользователя" close={() => setDialog('')}>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              run(async () => {
-                await api('/users', 'POST', Object.fromEntries(f));
-                setUsers(await api('/users'));
-                setDialog('');
-              });
-            }}
-          >
-            <Field label="Электронная почта">
-              <input name="email" type="email" required />
-            </Field>
-            <Field label="Пароль (от 14 символов)">
-              <input
-                name="password"
-                type="password"
-                minLength={14}
-                required
-                autoComplete="new-password"
-              />
-            </Field>
-            <Field label="Права">
-              <select name="role">
-                <option value="EMPLOYEE">Сотрудник — просмотр и скачивание</option>
-                <option value="ADMIN">Администратор</option>
-              </select>
-            </Field>
-            <button className="primary" disabled={busy}>
-              Создать
             </button>
           </form>
         </Modal>

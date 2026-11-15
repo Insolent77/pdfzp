@@ -971,6 +971,34 @@ footer span {
     transform: rotate(360deg);
   }
 }
+.oauth-help {
+  margin-top: 18px;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #69788e;
+}
+.oauth-help summary {
+  cursor: pointer;
+  font-weight: 750;
+  color: #3d5e94;
+}
+.oauth-help ol {
+  padding-left: 19px;
+}
+.oauth-help li {
+  margin: 10px 0;
+}
+.oauth-help code {
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.setting > .button,
+.setting > button {
+  margin: 6px 8px 6px 0;
+}
+.setting .field input {
+  font-size: 11px;
+}
 @media (min-width: 1600px) {
   .content {
     padding-top: 42px;

@@ -25,6 +25,7 @@ jobs:
       - run: npm audit --audit-level=moderate
       - run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils
       - run: pdftoppm -scale-to 1400 -png private/qa/act.pdf private/qa/page
+      - run: pdftoppm -scale-to 1400 -png private/qa/browser-act.pdf private/qa/browser-page
       - uses: actions/upload-artifact@v4
         with:
           name: pdf-qa
