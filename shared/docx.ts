@@ -202,7 +202,11 @@ export function renderDocx(
         ['INDIVIDUAL', 'GROUP'].includes(type)
           ? batch.reduce((sum, e) => sum.plus(e.units), new Decimal(0)).toString()
           : '—',
-        rates.length ? rates.join('; ') : 'По фактическим начислениям; см. реестр',
+        rates.length
+          ? rates.join('; ')
+          : ['INDIVIDUAL', 'GROUP'].includes(type)
+            ? 'По фактическим начислениям; см. реестр'
+            : '—',
         money(batch.reduce((sum, e) => sum.plus(e.amount), new Decimal(0))),
       ]);
     }
@@ -232,12 +236,20 @@ export function renderDocx(
           'Основание / строка',
         ],
         ...r.entries.map((e) => [
-          fmt(e.date),
+          e.date ? fmt(e.date) : '—',
           e.student,
-          e.type + ' / ' + e.format,
+          {
+            INDIVIDUAL: 'Индивидуальное',
+            GROUP: 'Групповое',
+            BONUS: 'Дополнительное вознаграждение',
+            COMPENSATION: 'Компенсация',
+            CORRECTION: 'Корректировка',
+            FINE: 'Штраф',
+            UNKNOWN: 'Требует классификации',
+          }[e.type] + (e.format ? ' / ' + e.format : ''),
           `${e.minutes} / ${e.units}`,
           e.amount,
-          `${e.basis} [${e.row}]`,
+          `${e.basis}${e.row ? ` [строка ${e.row}]` : ' (ручная запись)'}`,
         ]),
       ]) +
       p(
