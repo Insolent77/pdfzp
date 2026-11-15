@@ -1,0 +1,42 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    ports: ['127.0.0.1:3000:3000']
+    volumes: ['documents:/app/storage']
+    depends_on:
+      db:
+        condition: service_healthy
+      converter:
+        condition: service_started
+  db:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: acts
+      POSTGRES_USER: acts
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes: ['postgres:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U acts -d acts']
+      interval: 5s
+      timeout: 5s
+      retries: 15
+  converter:
+    image: gotenberg/gotenberg:9.5.1
+    environment:
+      LIBREOFFICE_DENY_PUBLIC_IPS: "true"
+      LIBREOFFICE_DENY_PRIVATE_IPS: "true"
+    restart: unless-stopped
+    command:
+      [
+        'gotenberg',
+        '--api-timeout=120s',
+        '--libreoffice-auto-start=true',
+        '--libreoffice-disable-routes=false',
+      ]
+    # No public port: DOCX converter is available only to application containers.
+volumes:
+  postgres:
+  documents:

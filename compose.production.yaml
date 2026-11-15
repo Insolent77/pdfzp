@@ -1,0 +1,19 @@
+services:
+  app:
+    environment:
+      NODE_ENV: production
+      APP_URL: https://${DOMAIN:?Set DOMAIN}
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+volumes:
+  caddy_data:
+  caddy_config:

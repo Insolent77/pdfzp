@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  passwordHash String
+  role String @default("EMPLOYEE")
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+}
+model Teacher {
+  id String @id @default(cuid())
+  name String @unique
+  dativeName String @default("")
+  kind String @default("UNKNOWN")
+  spreadsheetId String @default("")
+  folderId String @default("")
+  contractNumber String @default("")
+  contractDate String @default("")
+  assignmentNumber String @default("")
+  assignmentDate String @default("")
+  verified Boolean @default(false)
+  requisites Json @default("{}")
+  notes String @default("")
+  archived Boolean @default(false)
+  revision Int @default(1)
+  protectedFields Json @default("[]")
+  mapping Json @default("{}")
+  rules Json @default("{}")
+  sourceSnapshot Json @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  rates Rate[]
+  calculations Calculation[]
+}
+model Rate {
+  id String @id @default(cuid())
+  teacherId String
+  teacher Teacher @relation(fields:[teacherId],references:[id])
+  from String
+  to String?
+  service String
+  format String @default("")
+  amount String
+  unitMinutes Int @default(60)
+  confirmed Boolean @default(false)
+}
+model Calculation {
+  id String @id @default(cuid())
+  teacherId String
+  teacher Teacher @relation(fields:[teacherId],references:[id])
+  month Int
+  year Int
+  version Int
+  source Json
+  raw Json
+  report Json
+  hash String
+  createdAt DateTime @default(now())
+  documents Document[]
+  @@unique([teacherId,year,month,version])
+}
+model Adjustment {
+  id String @id @default(cuid())
+  teacherId String
+  month Int
+  year Int
+  type String
+  amount String
+  basis String
+  authorId String
+  createdAt DateTime @default(now())
+}
+model Document {
+  id String @id @default(cuid())
+  calculationId String
+  calculation Calculation @relation(fields:[calculationId],references:[id])
+  version Int
+  actNumber String
+  actDate String
+  status String
+  amount String
+  snapshot Json
+  confirmations Json
+  templateHash String
+  pdfPath String @default("")
+  docxPath String @default("")
+  driveId String @default("")
+  uploadError String @default("")
+  createdAt DateTime @default(now())
+}
+model GoogleAccount {
+  id String @id @default(cuid())
+  email String @unique
+  encryptedTokens String
+  active Boolean @default(true)
+  updatedAt DateTime @updatedAt
+}
+model Setting {
+  key String @id
+  value Json
+}
+model Audit {
+  id String @id @default(cuid())
+  userId String
+  action String
+  entityId String
+  data Json
+  createdAt DateTime @default(now())
+}

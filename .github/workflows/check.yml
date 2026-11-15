@@ -1,0 +1,31 @@
+name: Verify application
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      converter:
+        image: gotenberg/gotenberg:9.5.1
+        ports: [3001:3000]
+    env:
+      GOTENBERG_URL: http://127.0.0.1:3001
+      QA_OUTPUT_DIR: private/qa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run build
+      - run: npm test
+      - run: npm audit --audit-level=moderate
+      - run: sudo apt-get update -qq && sudo apt-get install -y poppler-utils
+      - run: pdftoppm -scale-to 1400 -png private/qa/act.pdf private/qa/page
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pdf-qa
+          path: private/qa/
