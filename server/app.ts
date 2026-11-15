@@ -24,7 +24,6 @@ import {
 } from './calculation';
 import {
   oauth,
-  encrypt,
   googleClient,
   salary,
   syncDirectory,
@@ -151,11 +150,15 @@ export function createApp() {
   const app = express();
   if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)
     throw Error('Нужен SESSION_SECRET не короче 32 символов');
-  if (process.env.NODE_ENV === 'production' && !process.env.APP_URL?.startsWith('https://'))
-    throw Error('Production требует HTTPS APP_URL');
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
-  app.use(helmet());
+  const usesHttps = process.env.APP_URL?.startsWith('https://') ?? false;
+  app.use(
+    helmet({
+      strictTransportSecurity: usesHttps ? undefined : false,
+      contentSecurityPolicy: { directives: { upgradeInsecureRequests: usesHttps ? [] : null } },
+    }),
+  );
   app.use(express.json({ limit: '2mb' }));
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   app.locals.close = () => pool.end();
@@ -168,7 +171,7 @@ export function createApp() {
       saveUninitialized: false,
       cookie: {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: process.env.APP_URL?.startsWith('https://') ?? false,
         sameSite: 'lax',
         maxAge: 8 * 60 * 60 * 1000,
       },
@@ -653,8 +656,8 @@ export function createApp() {
       if (!profile.data.email) throw Error('Google не вернул email');
       await db.googleAccount.upsert({
         where: { email: profile.data.email },
-        create: { email: profile.data.email, encryptedTokens: encrypt(tokens) },
-        update: { encryptedTokens: encrypt(tokens), active: true },
+        create: { email: profile.data.email, tokens: json(tokens) },
+        update: { tokens: json(tokens), active: true },
       });
       await audit(res.locals.user.id, 'GOOGLE_CONNECT', profile.data.email);
       if (!(await db.teacher.count())) await syncDirectory(res.locals.user.id);
@@ -667,7 +670,7 @@ export function createApp() {
     asyncRoute(async (req, res) => {
       await db.googleAccount.update({
         where: { id: String(req.params.id) },
-        data: { active: false, encryptedTokens: '' },
+        data: { active: false, tokens: {} },
       });
       await audit(res.locals.user.id, 'GOOGLE_DISCONNECT', String(req.params.id));
       res.json({ ok: true });
@@ -1005,21 +1008,17 @@ export function createApp() {
   app.get('/{*path}', (_req, res) => res.sendFile(path.resolve('dist/index.html')));
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (err instanceof z.ZodError)
-      return void res
-        .status(400)
-        .json({
-          error: 'Некорректные данные',
-          errors: err.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
-        });
-    const status = err.status ?? (err.code === 'P2025' ? 404 : err.code === 'P2002' ? 409 : 400);
-    res
-      .status(status)
-      .json({
-        error:
-          err.code === 'P2002'
-            ? 'Запись с такими данными уже существует'
-            : (err.message ?? 'Ошибка сервера'),
+      return void res.status(400).json({
+        error: 'Некорректные данные',
+        errors: err.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
       });
+    const status = err.status ?? (err.code === 'P2025' ? 404 : err.code === 'P2002' ? 409 : 400);
+    res.status(status).json({
+      error:
+        err.code === 'P2002'
+          ? 'Запись с такими данными уже существует'
+          : (err.message ?? 'Ошибка сервера'),
+    });
   });
   return app;
 }

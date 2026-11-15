@@ -258,7 +258,7 @@ function App() {
       ? [['settings', 'Настройки', Settings] as [string, string, typeof LayoutDashboard]]
       : []),
   ];
-  if (user === undefined) return <div className="loading">Загрузка защищённой сессии…</div>;
+  if (user === undefined) return <div className="loading">Загрузка…</div>;
   if (!user)
     return (
       <div className="login">
@@ -327,7 +327,7 @@ function App() {
           <div className="private">
             <ShieldCheck size={16} />
             <span>
-              Закрытое пространство<small>Персональные данные защищены</small>
+              Закрытое пространство<small>Справочник и документы</small>
             </span>
           </div>
           <div className="profile">
@@ -358,7 +358,7 @@ function App() {
             {nav.find((n) => n[0] === page)?.[1]}
           </span>
           <span className="secure">
-            <span /> Защищённая сессия
+            <span /> Вы вошли в систему
           </span>
         </div>
         <div className="content">

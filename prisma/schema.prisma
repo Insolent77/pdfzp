@@ -97,7 +97,7 @@ model Document {
 model GoogleAccount {
   id String @id @default(cuid())
   email String @unique
-  encryptedTokens String
+  tokens Json @default("{}")
   active Boolean @default(true)
   updatedAt DateTime @updatedAt
 }

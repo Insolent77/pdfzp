@@ -1,28 +1,7 @@
 import { google } from 'googleapis';
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
-import { db } from './db';
+import { db, json } from './db';
 import { monthKey, norm, dateISO } from './calculation';
-function key() {
-  const value = process.env.TOKEN_ENCRYPTION_KEY ?? '';
-  if (!/^[a-f0-9]{64}$/i.test(value))
-    throw Error('TOKEN_ENCRYPTION_KEY должен содержать 32 байта в hex');
-  return Buffer.from(value, 'hex');
-}
-export function encrypt(value: unknown) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key(), iv);
-  const bytes = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
-  return Buffer.concat([iv, cipher.getAuthTag(), bytes]).toString('base64');
-}
-export function decrypt(value: string) {
-  const b = Buffer.from(value, 'base64');
-  const cipher = createDecipheriv('aes-256-gcm', key(), b.subarray(0, 12));
-  cipher.setAuthTag(b.subarray(12, 28));
-  return JSON.parse(
-    Buffer.concat([cipher.update(b.subarray(28)), cipher.final()]).toString('utf8'),
-  );
-}
 export function oauth() {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET)
     throw Error('Google OAuth не настроен на сервере');
@@ -39,13 +18,18 @@ export async function googleClient() {
   });
   if (!account) throw Error('Подключите Google-аккаунт в настройках');
   const client = oauth();
-  const tokens = decrypt(account.encryptedTokens);
+  let tokens = account.tokens as {
+    access_token?: string;
+    refresh_token?: string;
+    expiry_date?: number;
+  };
   client.setCredentials(tokens);
   client.on('tokens', async (next) => {
     try {
+      tokens = { ...tokens, ...next } as typeof tokens;
       await db.googleAccount.update({
         where: { id: account.id },
-        data: { encryptedTokens: encrypt({ ...tokens, ...next }) },
+        data: { tokens: json(tokens) },
       });
     } catch {
       console.error('Не удалось сохранить обновление Google-токена');
@@ -92,13 +76,11 @@ export async function directoryRows() {
   const auth = await googleClient();
   const id = process.env.DIRECTORY_SPREADSHEET_ID;
   if (!id) throw Error('Не задан DIRECTORY_SPREADSHEET_ID');
-  const result = await google
-    .sheets({ version: 'v4', auth })
-    .spreadsheets.values.get({
-      spreadsheetId: id,
-      range: "'Преподаватели'!A1:AZ600",
-      valueRenderOption: 'FORMATTED_VALUE',
-    });
+  const result = await google.sheets({ version: 'v4', auth }).spreadsheets.values.get({
+    spreadsheetId: id,
+    range: "'Преподаватели'!A1:AZ600",
+    valueRenderOption: 'FORMATTED_VALUE',
+  });
   return result.data.values ?? [];
 }
 export function parseDirectory(rows: unknown[][]) {
@@ -193,13 +175,11 @@ export async function downloadDocx(id: string) {
 }
 export async function uploadPdf(folderId: string, name: string, bytes: Buffer) {
   const auth = await googleClient();
-  const result = await google
-    .drive({ version: 'v3', auth })
-    .files.create({
-      requestBody: { name, parents: [folderId] },
-      media: { mimeType: 'application/pdf', body: Readable.from(bytes) },
-      fields: 'id,webViewLink',
-      supportsAllDrives: true,
-    });
+  const result = await google.drive({ version: 'v3', auth }).files.create({
+    requestBody: { name, parents: [folderId] },
+    media: { mimeType: 'application/pdf', body: Readable.from(bytes) },
+    fields: 'id,webViewLink',
+    supportsAllDrives: true,
+  });
   return result.data;
 }

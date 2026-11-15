@@ -10,8 +10,12 @@ test('HTTP API: PostgreSQL, сессия, CSRF, роли, импорт, верс
     'postgresql://postgres:postgres@127.0.0.1:55439/postgres?connection_limit=1&sslmode=disable';
   process.env.SESSION_SECRET = 'test-only-strong-session-secret-never-use-in-production';
   process.env.APP_URL = 'http://127.0.0.1:35439';
+  process.env.NODE_ENV = 'production';
   const pg = await PGlite.create();
   await pg.exec(await readFile('prisma/migrations/202611150001_initial/migration.sql', 'utf8'));
+  await pg.exec(
+    await readFile('prisma/migrations/202611150002_plain_google_tokens/migration.sql', 'utf8'),
+  );
   const socket = new PGLiteSocketServer({
     db: pg,
     host: '127.0.0.1',
@@ -42,6 +46,12 @@ test('HTTP API: PostgreSQL, сессия, CSRF, роли, импорт, верс
     return { status: r.status, data };
   }
   try {
+    const health = await fetch('http://127.0.0.1:35439/api/health');
+    assert.equal(health.status, 200);
+    assert.equal(health.headers.get('strict-transport-security'), null);
+    assert.ok(
+      !health.headers.get('content-security-policy')?.includes('upgrade-insecure-requests'),
+    );
     await db.user.create({
       data: {
         email: 'admin@test.ru',
@@ -75,6 +85,27 @@ test('HTTP API: PostgreSQL, сессия, CSRF, роли, импорт, верс
         })
       ).status,
       200,
+    );
+    const googleAccount = await db.googleAccount.create({
+      data: {
+        email: 'google@test.ru',
+        tokens: {
+          access_token: 'test-plain-access-token',
+          refresh_token: 'test-plain-refresh-token',
+        },
+      },
+    });
+    assert.deepEqual(
+      (await db.googleAccount.findUniqueOrThrow({ where: { id: googleAccount.id } })).tokens,
+      { access_token: 'test-plain-access-token', refresh_token: 'test-plain-refresh-token' },
+    );
+    const accountSettings = await request('/settings');
+    assert.equal(accountSettings.status, 200);
+    assert.ok(!JSON.stringify(accountSettings.data).includes('test-plain-'));
+    assert.equal((await request(`/google/accounts/${googleAccount.id}`, 'DELETE')).status, 200);
+    assert.deepEqual(
+      (await db.googleAccount.findUniqueOrThrow({ where: { id: googleAccount.id } })).tokens,
+      {},
     );
     const teacher = await request('/teachers', 'POST', {
       name: 'Тестовый преподаватель',

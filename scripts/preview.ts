@@ -12,6 +12,9 @@ process.env.APP_URL = 'http://127.0.0.1:3000';
 process.env.NODE_ENV = 'development';
 const pg = await PGlite.create();
 await pg.exec(await readFile('prisma/migrations/202611150001_initial/migration.sql', 'utf8'));
+await pg.exec(
+  await readFile('prisma/migrations/202611150002_plain_google_tokens/migration.sql', 'utf8'),
+);
 const socket = new PGLiteSocketServer({
   db: pg,
   port: 55440,
